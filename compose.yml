@@ -2,6 +2,8 @@ services:
   php:
     image: php:8.3-cli
     working_dir: /var/www/html
+    environment:
+      TZ: Asia/Tokyo
     ports:
       - "8000:8000"
     volumes:
