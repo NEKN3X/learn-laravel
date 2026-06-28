@@ -15,6 +15,10 @@ switch ($command) {
         add_log_entry(array_slice($argv, 2));
         break;
 
+    case 'log:end':
+        end_log_entry(array_slice($argv, 2));
+        break;
+
     case 'log:list':
         require_no_arguments($command, array_slice($argv, 2));
         list_log_entries(load_log_entries());
@@ -68,6 +72,38 @@ function add_log_entry(array $args): void
     save_log_entries($entries);
 
     echo "Added Log Entry #{$entry['id']}: {$entry['title']}\n";
+}
+
+function end_log_entry(array $args): void
+{
+    if (count($args) === 0 || trim($args[0]) === '') {
+        fail("Missing required Log Entry ID.\n\nUsage: php bin/app.php log:end <id>");
+    }
+
+    if (count($args) > 1) {
+        fail("Command log:end accepts exactly one Log Entry ID.");
+    }
+
+    $id = parse_log_entry_id($args[0]);
+    $entries = load_log_entries();
+
+    foreach ($entries as $index => $entry) {
+        if (($entry['id'] ?? null) !== $id) {
+            continue;
+        }
+
+        if (!empty($entry['ended_at'])) {
+            fail("Log Entry #{$id} already has an End Time.");
+        }
+
+        $entries[$index]['ended_at'] = date('c');
+        save_log_entries($entries);
+
+        echo "Ended Log Entry #{$id}: {$entries[$index]['ended_at']}\n";
+        return;
+    }
+
+    fail("Log Entry #{$id} was not found.");
 }
 
 function list_log_entries(array $entries): void
@@ -192,6 +228,17 @@ function next_log_entry_id(array $entries): int
     return $maxId + 1;
 }
 
+function parse_log_entry_id(string $id): int
+{
+    $id = trim($id);
+
+    if ($id === '' || !ctype_digit($id) || (int) $id < 1) {
+        fail("Invalid Log Entry ID: {$id}");
+    }
+
+    return (int) $id;
+}
+
 function sort_log_entries_by_recorded_time(array $entries): array
 {
     usort($entries, function (array $a, array $b): int {
@@ -231,6 +278,7 @@ function usage(): string
     return implode("\n", [
         'Usage:',
         '  php bin/app.php log:add "<title>" [--content "<content>"]',
+        '  php bin/app.php log:end <id>',
         '  php bin/app.php log:list',
         '  php bin/app.php log:today',
     ]);
