@@ -98,10 +98,18 @@ Scope:
 
 - improve validation and error messages
 - support editing Log Entries
-- support deleting Log Entries if useful
 - add explicit recorded/end time options
 - add filters by date and Context
 - Export Log Entries to CSV.
+
+Out of scope:
+
+- physical Log Entry deletion
+- Archived Log Entry workflows
+- Log Categories
+- SQLite or PDO
+- Composer or PSR-4 autoloading
+- OOP restructuring
 
 Learn:
 
