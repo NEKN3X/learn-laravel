@@ -1,6 +1,6 @@
 services:
   php:
-    image: php:8.3-cli
+    image: php:8.5-cli
     working_dir: /var/www/html
     environment:
       TZ: Asia/Tokyo
