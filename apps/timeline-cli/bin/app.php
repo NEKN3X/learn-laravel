@@ -24,13 +24,15 @@ switch ($command) {
         break;
 
     case 'log:list':
-        require_no_arguments($command, array_slice($argv, 2));
-        list_log_entries(load_log_entries(), load_contexts());
+        list_log_entries(array_slice($argv, 2), load_log_entries(), load_contexts());
         break;
 
     case 'log:today':
-        require_no_arguments($command, array_slice($argv, 2));
-        list_todays_log_entries(load_log_entries(), load_contexts());
+        list_todays_log_entries(array_slice($argv, 2), load_log_entries(), load_contexts());
+        break;
+
+    case 'log:export-csv':
+        export_log_entries_csv(array_slice($argv, 2), load_log_entries(), load_contexts());
         break;
 
     case 'context:add':
@@ -254,19 +256,57 @@ function edit_log_entry(array $args): void
     echo "Updated Log Entry #{$id}.\n";
 }
 
-function list_log_entries(array $entries, array $contexts): void
+function list_log_entries(array $args, array $entries, array $contexts): void
 {
-    print_log_entries(sort_log_entries_by_recorded_time($entries), $contexts);
+    $query = parse_log_entry_query_options('log:list', $args, $contexts, true, true);
+    $filteredEntries = filter_log_entries($entries, $query);
+
+    print_log_entries(sort_log_entries_by_recorded_time($filteredEntries, $query['order']), $contexts);
 }
 
-function list_todays_log_entries(array $entries, array $contexts): void
+function list_todays_log_entries(array $args, array $entries, array $contexts): void
 {
-    $today = date('Y-m-d');
-    $todaysEntries = array_values(array_filter($entries, function (array $entry) use ($today): bool {
-        return substr((string) ($entry['recorded_at'] ?? ''), 0, 10) === $today;
-    }));
+    $query = parse_log_entry_query_options('log:today', $args, $contexts, false, true);
+    $query['date'] = date('Y-m-d');
+    $filteredEntries = filter_log_entries($entries, $query);
 
-    print_log_entries(sort_log_entries_by_recorded_time($todaysEntries), $contexts);
+    print_log_entries(sort_log_entries_by_recorded_time($filteredEntries, $query['order']), $contexts);
+}
+
+function export_log_entries_csv(array $args, array $entries, array $contexts): void
+{
+    $parsed = parse_arguments(
+        'log:export-csv',
+        $args,
+        ['--date', '--from', '--to', '--context', '--output'],
+        ['--no-context']
+    );
+    require_no_positionals('log:export-csv', $parsed['positionals']);
+
+    $query = build_log_entry_query('log:export-csv', $parsed['options'], $contexts, true, false);
+    $filteredEntries = sort_log_entries_by_recorded_time(filter_log_entries($entries, $query), 'asc');
+    $csv = render_log_entries_csv($filteredEntries, $contexts);
+
+    if (array_key_exists('--output', $parsed['options'])) {
+        $path = trim($parsed['options']['--output']);
+
+        if ($path === '') {
+            fail('Output path cannot be empty.');
+        }
+
+        $directory = dirname($path);
+        if ($directory !== '.' && !is_dir($directory)) {
+            fail("Output directory does not exist: {$directory}");
+        }
+
+        if (file_put_contents($path, $csv, LOCK_EX) === false) {
+            fail("Could not write CSV output file: {$path}");
+        }
+
+        return;
+    }
+
+    echo $csv;
 }
 
 function list_contexts(array $contexts, ?int $currentContextId): void
@@ -370,11 +410,185 @@ function require_exactly_one_positional(string $command, array $positionals, str
     }
 }
 
+function require_no_positionals(string $command, array $positionals): void
+{
+    if (count($positionals) > 0) {
+        fail("Command {$command} does not accept positional arguments.");
+    }
+}
+
 function require_not_mutually_exclusive(array $options, string $first, string $second): void
 {
     if (array_key_exists($first, $options) && array_key_exists($second, $options)) {
         fail("Cannot provide both {$first} and {$second}.");
     }
+}
+
+function parse_log_entry_query_options(
+    string $command,
+    array $args,
+    array $contexts,
+    bool $allowDateFilters,
+    bool $allowOrder
+): array {
+    $valueOptions = ['--context'];
+
+    if ($allowDateFilters) {
+        $valueOptions[] = '--date';
+        $valueOptions[] = '--from';
+        $valueOptions[] = '--to';
+    }
+
+    if ($allowOrder) {
+        $valueOptions[] = '--order';
+    }
+
+    $parsed = parse_arguments($command, $args, $valueOptions, ['--no-context']);
+    require_no_positionals($command, $parsed['positionals']);
+
+    return build_log_entry_query($command, $parsed['options'], $contexts, $allowDateFilters, $allowOrder);
+}
+
+function build_log_entry_query(
+    string $command,
+    array $options,
+    array $contexts,
+    bool $allowDateFilters,
+    bool $allowOrder
+): array {
+    if (!$allowDateFilters) {
+        foreach (['--date', '--from', '--to'] as $option) {
+            if (array_key_exists($option, $options)) {
+                fail("Unknown option for {$command}: {$option}");
+            }
+        }
+    }
+
+    require_not_mutually_exclusive($options, '--date', '--from');
+    require_not_mutually_exclusive($options, '--date', '--to');
+    require_not_mutually_exclusive($options, '--context', '--no-context');
+
+    $date = array_key_exists('--date', $options) ? parse_local_date($options['--date'], '--date') : null;
+    $from = array_key_exists('--from', $options) ? parse_local_date($options['--from'], '--from') : null;
+    $to = array_key_exists('--to', $options) ? parse_local_date($options['--to'], '--to') : null;
+
+    if ($from !== null && $to !== null && $from > $to) {
+        fail('--from must be on or before --to.');
+    }
+
+    $contextId = null;
+    $filterNoContext = array_key_exists('--no-context', $options);
+
+    if (array_key_exists('--context', $options)) {
+        $contextName = normalize_context_name($options['--context']);
+        $context = find_context_by_name($contexts, $contextName);
+
+        if ($context === null) {
+            fail("Context not found: {$contextName}");
+        }
+
+        $contextId = $context['id'];
+    }
+
+    $order = 'desc';
+    if ($allowOrder && array_key_exists('--order', $options)) {
+        $order = strtolower(trim($options['--order']));
+
+        if ($order !== 'asc' && $order !== 'desc') {
+            fail("Invalid order: {$options['--order']}. Use asc or desc.");
+        }
+    }
+
+    return [
+        'date' => $date,
+        'from' => $from,
+        'to' => $to,
+        'context_id' => $contextId,
+        'no_context' => $filterNoContext,
+        'order' => $order,
+    ];
+}
+
+function parse_local_date(string $value, string $option): string
+{
+    $value = trim($value);
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+    if (!$date instanceof DateTimeImmutable || !date_parse_succeeded() || $date->format('Y-m-d') !== $value) {
+        fail("Invalid date for {$option}: {$value}. Use Y-m-d.");
+    }
+
+    return $value;
+}
+
+function filter_log_entries(array $entries, array $query): array
+{
+    return array_values(array_filter($entries, function (array $entry) use ($query): bool {
+        $recordedDate = local_recorded_date($entry);
+
+        if ($query['date'] !== null && $recordedDate !== $query['date']) {
+            return false;
+        }
+
+        if ($query['from'] !== null && $recordedDate < $query['from']) {
+            return false;
+        }
+
+        if ($query['to'] !== null && $recordedDate > $query['to']) {
+            return false;
+        }
+
+        if ($query['context_id'] !== null && ($entry['context_id'] ?? null) !== $query['context_id']) {
+            return false;
+        }
+
+        if ($query['no_context'] && ($entry['context_id'] ?? null) !== null) {
+            return false;
+        }
+
+        return true;
+    }));
+}
+
+function local_recorded_date(array $entry): string
+{
+    return parse_stored_datetime((string) ($entry['recorded_at'] ?? ''), 'recorded_at')
+        ->setTimezone(new DateTimeZone(date_default_timezone_get()))
+        ->format('Y-m-d');
+}
+
+function render_log_entries_csv(array $entries, array $contexts): string
+{
+    $stream = fopen('php://temp', 'r+');
+    if ($stream === false) {
+        fail('Could not open temporary stream for CSV output.');
+    }
+
+    $contextNamesById = context_names_by_id($contexts);
+    fputcsv($stream, ['id', 'title', 'content', 'recorded_at', 'ended_at', 'context_id', 'context_name'], ',', '"', '');
+
+    foreach ($entries as $entry) {
+        $contextId = $entry['context_id'];
+        fputcsv($stream, [
+            $entry['id'],
+            $entry['title'],
+            $entry['content'] ?? '',
+            $entry['recorded_at'],
+            $entry['ended_at'] ?? '',
+            $contextId ?? '',
+            $contextId === null ? '' : ($contextNamesById[$contextId] ?? "Context #{$contextId}"),
+        ], ',', '"', '');
+    }
+
+    rewind($stream);
+    $csv = stream_get_contents($stream);
+    fclose($stream);
+
+    if ($csv === false) {
+        fail('Could not read CSV output.');
+    }
+
+    return $csv;
 }
 
 function normalize_title(string $title, string $emptyMessage): string
@@ -866,10 +1080,18 @@ function parse_log_entry_id(string $id): int
     return (int) $id;
 }
 
-function sort_log_entries_by_recorded_time(array $entries): array
+function sort_log_entries_by_recorded_time(array $entries, string $order): array
 {
-    usort($entries, function (array $a, array $b): int {
-        return strcmp((string) ($a['recorded_at'] ?? ''), (string) ($b['recorded_at'] ?? ''));
+    usort($entries, function (array $a, array $b) use ($order): int {
+        $recordedAtA = parse_stored_datetime((string) ($a['recorded_at'] ?? ''), 'recorded_at');
+        $recordedAtB = parse_stored_datetime((string) ($b['recorded_at'] ?? ''), 'recorded_at');
+        $comparison = $recordedAtA <=> $recordedAtB;
+
+        if ($comparison === 0) {
+            $comparison = ($a['id'] ?? 0) <=> ($b['id'] ?? 0);
+        }
+
+        return $order === 'desc' ? -$comparison : $comparison;
     });
 
     return $entries;
@@ -913,8 +1135,9 @@ function usage(): string
         '  php bin/app.php log:add "<title>" [--content "<content>"] [--recorded-at "<datetime>"] [--context <name>|--no-context]',
         '  php bin/app.php log:end <id> [--ended-at "<datetime>"]',
         '  php bin/app.php log:edit <id> [--title "<title>"] [--content "<content>"|--clear-content] [--recorded-at "<datetime>"] [--ended-at "<datetime>"|--clear-ended-at] [--context <name>|--no-context]',
-        '  php bin/app.php log:list',
-        '  php bin/app.php log:today',
+        '  php bin/app.php log:list [--date <Y-m-d>|--from <Y-m-d> [--to <Y-m-d>]|--to <Y-m-d>] [--context <name>|--no-context] [--order asc|desc]',
+        '  php bin/app.php log:today [--context <name>|--no-context] [--order asc|desc]',
+        '  php bin/app.php log:export-csv [--date <Y-m-d>|--from <Y-m-d> [--to <Y-m-d>]|--to <Y-m-d>] [--context <name>|--no-context] [--output <path>]',
         '  php bin/app.php context:add <name>',
         '  php bin/app.php context:list',
         '  php bin/app.php context:switch <name>',
@@ -928,6 +1151,9 @@ function command_usage(string $command): string
         'log:add' => 'Usage: php bin/app.php log:add "<title>" [--content "<content>"] [--recorded-at "<datetime>"] [--context <name>|--no-context]',
         'log:end' => 'Usage: php bin/app.php log:end <id> [--ended-at "<datetime>"]',
         'log:edit' => 'Usage: php bin/app.php log:edit <id> [--title "<title>"] [--content "<content>"|--clear-content] [--recorded-at "<datetime>"] [--ended-at "<datetime>"|--clear-ended-at] [--context <name>|--no-context]',
+        'log:list' => 'Usage: php bin/app.php log:list [--date <Y-m-d>|--from <Y-m-d> [--to <Y-m-d>]|--to <Y-m-d>] [--context <name>|--no-context] [--order asc|desc]',
+        'log:today' => 'Usage: php bin/app.php log:today [--context <name>|--no-context] [--order asc|desc]',
+        'log:export-csv' => 'Usage: php bin/app.php log:export-csv [--date <Y-m-d>|--from <Y-m-d> [--to <Y-m-d>]|--to <Y-m-d>] [--context <name>|--no-context] [--output <path>]',
         'context:add' => 'Usage: php bin/app.php context:add <name>',
         'context:switch' => 'Usage: php bin/app.php context:switch <name>',
     ];
