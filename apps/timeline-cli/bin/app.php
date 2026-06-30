@@ -5,6 +5,8 @@ declare(strict_types=1);
 $autoloadPath = dirname(__DIR__) . '/vendor/autoload.php';
 if (is_file($autoloadPath)) {
     require $autoloadPath;
+} else {
+    require_context_oop_files();
 }
 
 configure_timezone_from_environment();
@@ -41,23 +43,19 @@ switch ($command) {
         break;
 
     case 'context:add':
-        add_context(array_slice($argv, 2));
+        run_context_command('add', array_slice($argv, 2));
         break;
 
     case 'context:list':
-        require_no_arguments($command, array_slice($argv, 2));
-        list_contexts(load_contexts(), load_current_context_id());
+        run_context_command('list', array_slice($argv, 2));
         break;
 
     case 'context:switch':
-        switch_current_context(array_slice($argv, 2));
+        run_context_command('switch', array_slice($argv, 2));
         break;
 
     case 'context:clear':
-        require_no_arguments($command, array_slice($argv, 2));
-        load_current_context_id();
-        save_current_context_id(null);
-        echo "Cleared Current Context.\n";
+        run_context_command('clear', array_slice($argv, 2));
         break;
 
     default:
@@ -107,46 +105,22 @@ function add_log_entry(array $args): void
     echo "Added Log Entry #{$entry['id']}: {$entry['title']}\n";
 }
 
-function add_context(array $args): void
+function run_context_command(string $method, array $args): void
 {
-    $parsed = parse_arguments('context:add', $args, [], []);
-    require_exactly_one_positional('context:add', $parsed['positionals'], 'Context name');
-
-    $name = normalize_context_name($parsed['positionals'][0]);
-    $contexts = load_contexts();
-
-    if (find_context_by_name($contexts, $name) !== null) {
-        fail("Context already exists: {$name}");
+    try {
+        context_console()->{$method}($args);
+    } catch (TimelineCli\Console\ContextCommandFailed $exception) {
+        fail($exception->getMessage());
     }
-
-    $context = [
-        'id' => next_context_id($contexts),
-        'name' => $name,
-    ];
-
-    validate_context_state($context, "Context #{$context['id']}");
-
-    $contexts[] = $context;
-    save_contexts($contexts);
-
-    echo "Added Context #{$context['id']}: {$context['name']}\n";
 }
 
-function switch_current_context(array $args): void
+function context_console(): TimelineCli\Console\ContextConsole
 {
-    $parsed = parse_arguments('context:switch', $args, [], []);
-    require_exactly_one_positional('context:switch', $parsed['positionals'], 'Context name');
+    $contextRepository = new TimelineCli\Infrastructure\JsonContextRepository(contexts_path());
+    $currentContextStore = new TimelineCli\Infrastructure\JsonCurrentContextStore(current_context_path());
+    $contextService = new TimelineCli\Application\ContextService($contextRepository, $currentContextStore);
 
-    $name = normalize_context_name($parsed['positionals'][0]);
-    $context = find_context_by_name(load_contexts(), $name);
-
-    if ($context === null) {
-        fail("Context not found: {$name}");
-    }
-
-    save_current_context_id($context['id']);
-
-    echo "Switched Current Context to {$context['name']}.\n";
+    return new TimelineCli\Console\ContextConsole($contextService);
 }
 
 function end_log_entry(array $args): void
@@ -312,24 +286,6 @@ function export_log_entries_csv(array $args, array $entries, array $contexts): v
     }
 
     echo $csv;
-}
-
-function list_contexts(array $contexts, ?int $currentContextId): void
-{
-    if (count($contexts) === 0) {
-        echo "No Contexts found.\n";
-        return;
-    }
-
-    foreach ($contexts as $context) {
-        $line = "#{$context['id']} {$context['name']}";
-
-        if ($context['id'] === $currentContextId) {
-            $line .= ' (current)';
-        }
-
-        echo $line . "\n";
-    }
 }
 
 function print_log_entries(array $entries, array $contexts): void
@@ -1130,6 +1086,29 @@ function configure_timezone_from_environment(): void
 
     if (in_array($timezone, timezone_identifiers_list(), true)) {
         date_default_timezone_set($timezone);
+    }
+}
+
+function require_context_oop_files(): void
+{
+    $src = dirname(__DIR__) . '/src';
+
+    foreach ([
+        '/Domain/Exception/InvalidContext.php',
+        '/Domain/Context.php',
+        '/Domain/ContextRepository.php',
+        '/Domain/CurrentContextStore.php',
+        '/Application/Exception/ContextNotFound.php',
+        '/Application/Exception/DuplicateContextName.php',
+        '/Application/ContextList.php',
+        '/Application/ContextService.php',
+        '/Infrastructure/StorageFailure.php',
+        '/Infrastructure/JsonContextRepository.php',
+        '/Infrastructure/JsonCurrentContextStore.php',
+        '/Console/ContextCommandFailed.php',
+        '/Console/ContextConsole.php',
+    ] as $file) {
+        require_once $src . $file;
     }
 }
 
