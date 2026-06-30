@@ -61,6 +61,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 cp -R apps/timeline-cli "$tmpdir/timeline-cli"
 cd "$tmpdir/timeline-cli"
 composer install
+export TZ=Asia/Tokyo
 rm -rf data exports
 mkdir -p exports
 
@@ -114,6 +115,7 @@ TIMELINE_LOG_FILE=custom-logs/app.log
 EOF
 
 php bin/app.php context:add learn-laravel
+php bin/app.php context:switch learn-laravel
 php bin/app.php log:add "Configured data dir" --context learn-laravel
 
 test -f custom-data/contexts.json

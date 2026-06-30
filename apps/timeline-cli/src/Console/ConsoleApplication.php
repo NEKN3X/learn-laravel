@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace TimelineCli\Console;
 
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
+use Throwable;
+use TimelineCli\Infrastructure\StorageFailure;
+
 final class ConsoleApplication
 {
     public function __construct(
         private LogEntryConsole $logEntries,
-        private ContextConsole $contexts
+        private ContextConsole $contexts,
+        private ?LoggerInterface $logger = null
     ) {
     }
 
@@ -38,10 +44,52 @@ final class ConsoleApplication
                 default => throw new ConsoleCommandFailed("Unknown command: {$command}\n\n" . $this->usage()),
             };
         } catch (ConsoleCommandFailed $exception) {
+            $this->logOperationalFailure($exception);
             return $this->fail($exception->getMessage());
+        } catch (Throwable $exception) {
+            $this->logFailure('Unexpected Timeline CLI failure.', $exception);
+
+            return $this->fail('Unexpected application failure. See the application log for details.');
         }
 
         return 0;
+    }
+
+    private function logOperationalFailure(Throwable $exception): void
+    {
+        $operationalFailure = $this->findOperationalFailure($exception);
+
+        if (!$operationalFailure instanceof StorageFailure) {
+            return;
+        }
+
+        $this->logFailure($operationalFailure->getMessage(), $operationalFailure);
+    }
+
+    private function findOperationalFailure(Throwable $exception): ?StorageFailure
+    {
+        do {
+            if ($exception instanceof StorageFailure) {
+                return $exception;
+            }
+
+            $exception = $exception->getPrevious();
+        } while ($exception instanceof Throwable);
+
+        return null;
+    }
+
+    private function logger(): LoggerInterface
+    {
+        return $this->logger ??= new NullLogger();
+    }
+
+    private function logFailure(string $message, Throwable $exception): void
+    {
+        try {
+            $this->logger()->error($message, ['exception' => $exception]);
+        } catch (Throwable) {
+        }
     }
 
     private function fail(string $message): int
