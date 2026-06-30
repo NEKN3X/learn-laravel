@@ -1,4 +1,14 @@
 services:
+  composer:
+    image: composer:2
+    working_dir: /var/www/html/apps/timeline-cli
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      COMPOSER_HOME: /tmp/composer
+      TZ: Asia/Tokyo
+    volumes:
+      - .:/var/www/html
+
   php:
     image: php:8.5-cli
     working_dir: /var/www/html

@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+$autoloadPath = dirname(__DIR__) . '/vendor/autoload.php';
+if (is_file($autoloadPath)) {
+    require $autoloadPath;
+}
+
 configure_timezone_from_environment();
 
 $command = $argv[1] ?? null;
