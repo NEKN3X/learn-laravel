@@ -1,8 +1,12 @@
-# Phase 2 Docker Verification
+# Phase 2 Local Verification
 
-This checklist verifies the Phase 2 plain PHP CLI hardening slice through Docker.
+This checklist verifies the Phase 2 plain PHP CLI hardening slice through local WSL PHP commands.
 
-Run commands from the repository root. Each command copies the CLI into the container's `/tmp` directory before running it, so the checked-in workspace data is not modified.
+Run commands from the repository root when the checked-out tree is at the Phase 2 implementation. Each command copies the CLI into a temporary directory before running it, so the checked-in workspace data is not modified.
+
+Prerequisite:
+
+- PHP is available as `php`.
 
 ## Boundary Check
 
@@ -18,9 +22,12 @@ Phase 2 remains a single-file plain PHP CLI with JSON persistence:
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+set -eu
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
+
 php -l bin/app.php
 rm -rf data
 php bin/app.php log:list >/dev/null
@@ -29,7 +36,6 @@ test -z "$(find . \( -iname composer.json -o -iname composer.lock \) -print -qui
 test -f bin/app.php
 test -f data/log_entries.json
 test -f data/contexts.json
-'
 ```
 
 Verified result on 2026-06-29:
@@ -44,10 +50,11 @@ Verified result on 2026-06-29:
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 rm -rf data exports
 mkdir -p exports
 
@@ -80,7 +87,6 @@ test -s exports/phase-2.csv
 grep -Fx "id,title,content,recorded_at,ended_at,context_id,context_name" exports/phase-2.csv
 grep -n "2026-06-28T09:00:00+09:00" exports/phase-2.csv | grep -F "2:"
 grep -n "2026-06-28T12:00:00+09:00" exports/phase-2.csv | grep -F "3:"
-'
 ```
 
 This covers update flows, review filters, the today view, CSV export, Context case-insensitive lookup, and JSON persistence.
@@ -99,10 +105,11 @@ Verified result on 2026-06-29:
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 
 if php bin/app.php >/tmp/phase-2-usage 2>&1; then
     cat /tmp/phase-2-usage
@@ -131,7 +138,6 @@ grep -F -- "--context" /tmp/phase-2-usage
 grep -F -- "--no-context" /tmp/phase-2-usage
 grep -F -- "--order" /tmp/phase-2-usage
 grep -F -- "--output" /tmp/phase-2-usage
-'
 ```
 
 Verified result on 2026-06-29:
@@ -144,10 +150,11 @@ Verified result on 2026-06-29:
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 rm -rf data
 
 must_fail() {
@@ -187,7 +194,6 @@ must_fail php bin/app.php context:list
 
 printf "{\"current_context_id\":\"bad\"}\n" > data/current_context.json
 must_fail php bin/app.php context:clear
-'
 ```
 
 Expected result: each invalid command exits non-zero and prints a direct error message for invalid command, invalid option, missing argument, missing option value, extra positional argument, duplicate option, mutually exclusive options, invalid date/time, invalid date range, invalid Log Entry ID, unknown Log Entry, unknown Context, duplicate Context name, broken JSON, and invalid stored record shape cases.

@@ -1,8 +1,13 @@
-# Phase 3 Docker Verification
+# Phase 3 Local Verification
 
-This checklist verifies the Phase 3 Composer and OOP CLI restructure through Docker.
+This checklist verifies the Phase 3 Composer and OOP CLI restructure through local WSL PHP commands.
 
-Run commands from the repository root. Each command copies the CLI into the container's `/tmp` directory before running it, so the checked-in workspace data is not modified.
+Run commands from the repository root. Each command copies the CLI into a temporary directory before running it, so the checked-in workspace data is not modified.
+
+Prerequisites:
+
+- PHP 8.5 or newer is available as `php`.
+- Composer is available as `composer`.
 
 ## Boundary Check
 
@@ -21,10 +26,11 @@ Phase 3 keeps the Phase 2 command contract while replacing the internal implemen
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 
 composer install
 composer dump-autoload
@@ -42,7 +48,6 @@ php bin/app.php log:list >/dev/null
 
 ! grep -R "log:delete\|archived_at\|category\|SQLite\|PDO" -n bin src data
 ! composer show symfony/console >/dev/null 2>&1
-'
 ```
 
 ## Major Phase 2 Compatibility Flows
@@ -50,10 +55,11 @@ php bin/app.php log:list >/dev/null
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 composer install
 rm -rf data exports
 mkdir -p exports
@@ -87,7 +93,6 @@ test -s exports/phase-3.csv
 grep -Fx "id,title,content,recorded_at,ended_at,context_id,context_name" exports/phase-3.csv
 grep -n "2026-06-28T09:00:00+09:00" exports/phase-3.csv | grep -F "2:"
 grep -n "2026-06-28T12:00:00+09:00" exports/phase-3.csv | grep -F "3:"
-'
 ```
 
 ## `.env` Configuration
@@ -95,10 +100,11 @@ grep -n "2026-06-28T12:00:00+09:00" exports/phase-3.csv | grep -F "3:"
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 composer install
 rm -rf custom-data custom-logs
 
@@ -113,7 +119,6 @@ php bin/app.php log:add "Configured data dir" --context learn-laravel
 test -f custom-data/contexts.json
 test -f custom-data/log_entries.json
 test -f custom-data/current_context.json
-'
 ```
 
 ## Logging Operational Failures
@@ -121,10 +126,11 @@ test -f custom-data/current_context.json
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 composer install
 rm -rf data logs
 
@@ -139,7 +145,6 @@ fi
 grep -F "Storage file contains broken JSON" /tmp/phase-3-err
 test -s logs/app.log
 grep -F "broken JSON" logs/app.log
-'
 ```
 
 ## Invalid Input Failures
@@ -147,10 +152,11 @@ grep -F "broken JSON" logs/app.log
 Verification command:
 
 ```bash
-docker compose run --rm -w /tmp php sh -lc '
 set -eu
-cp -R /var/www/html/apps/timeline-cli timeline-cli
-cd timeline-cli
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+cp -R apps/timeline-cli "$tmpdir/timeline-cli"
+cd "$tmpdir/timeline-cli"
 composer install
 rm -rf data
 
@@ -179,5 +185,4 @@ must_fail php bin/app.php log:end abc
 must_fail php bin/app.php log:end 999
 must_fail php bin/app.php log:list --context unknown
 must_fail php bin/app.php context:add LEARN-LARAVEL
-'
 ```

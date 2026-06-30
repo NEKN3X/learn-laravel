@@ -43,7 +43,7 @@ The following should remain compatible with Phase 2:
 - stdout and stderr behavior
 - exit code meaning
 - JSON storage shape
-- Docker verification scenarios
+- Local verification scenarios
 
 This keeps the phase focused on learning OOP and Composer instead of mixing architecture changes with feature changes.
 
@@ -256,10 +256,10 @@ Individual command classes such as `AddLogEntryCommand` or `EndLogEntryCommand` 
 
 Phase 3 will not introduce PHPUnit, Pest, static analysis, formatters, or CI.
 
-The phase should include Docker verification documentation instead:
+The phase should include local WSL PHP verification documentation instead:
 
 ```txt
-docs/phase-3-docker-verification.md
+docs/phase-3-local-verification.md
 ```
 
 The verification should confirm Composer installation, PSR-4 autoloading, syntax checks, Phase 2 command compatibility, minimal `.env` behavior, logging behavior for operational failures, and Phase 3 boundary exclusions.
@@ -306,6 +306,6 @@ Phase 3 should replace the single-file CLI incrementally:
 4. Add application services and move command behavior behind them.
 5. Add `ConsoleApplication` and move dispatch, parsing, stdout, and stderr handling into it.
 6. Add minimal `.env` configuration and logging.
-7. Run the Phase 3 Docker verification against the Phase 2-compatible command contract.
+7. Run the Phase 3 local verification against the Phase 2-compatible command contract.
 
 During the migration, existing functions in `bin/app.php` may be kept temporarily. By the end of Phase 3, `bin/app.php` should be a thin bootstrap that loads Composer autoloading, builds the application, runs `ConsoleApplication`, and exits with its returned status code.
