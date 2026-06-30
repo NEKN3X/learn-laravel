@@ -6,8 +6,10 @@ namespace TimelineCli\Application;
 
 use DateTimeImmutable;
 use DateTimeInterface;
+use DateTimeZone;
 use TimelineCli\Application\Exception\ContextNotFound;
 use TimelineCli\Application\Exception\LogEntryNotFound;
+use TimelineCli\Domain\Context;
 use TimelineCli\Domain\ContextRepository;
 use TimelineCli\Domain\CurrentContextStore;
 use TimelineCli\Domain\Exception\InvalidContext;
@@ -104,6 +106,42 @@ final class LogEntryService
         return $entry;
     }
 
+    public function review(LogEntryQuery $query): LogEntryReview
+    {
+        $entries = $this->filterLogEntries($this->entries->all(), $query);
+        $entries = $this->sortLogEntriesByRecordedTime($entries, $query->order());
+
+        return new LogEntryReview($entries, $this->contextNamesById());
+    }
+
+    public function today(LogEntryQuery $query): LogEntryReview
+    {
+        $today = new LogEntryQuery(
+            (new DateTimeImmutable())->format('Y-m-d'),
+            null,
+            null,
+            $query->contextName(),
+            $query->noContext(),
+            $query->order()
+        );
+
+        return $this->review($today);
+    }
+
+    public function export(LogEntryQuery $query): LogEntryReview
+    {
+        $exportQuery = new LogEntryQuery(
+            $query->date(),
+            $query->from(),
+            $query->to(),
+            $query->contextName(),
+            $query->noContext(),
+            'asc'
+        );
+
+        return $this->review($exportQuery);
+    }
+
     private function resolveContextIdForNewLogEntry(?string $contextName, bool $useNoContext): ?int
     {
         if ($useNoContext) {
@@ -141,6 +179,81 @@ final class LogEntryService
         }
 
         return $context->id();
+    }
+
+    /**
+     * @param list<LogEntry> $entries
+     * @return list<LogEntry>
+     */
+    private function filterLogEntries(array $entries, LogEntryQuery $query): array
+    {
+        $contextId = $query->contextName() === null ? null : $this->resolveContextId($query->contextName());
+
+        return array_values(array_filter($entries, function (LogEntry $entry) use ($query, $contextId): bool {
+            $recordedDate = $this->localRecordedDate($entry);
+
+            if ($query->date() !== null && $recordedDate !== $query->date()) {
+                return false;
+            }
+
+            if ($query->from() !== null && $recordedDate < $query->from()) {
+                return false;
+            }
+
+            if ($query->to() !== null && $recordedDate > $query->to()) {
+                return false;
+            }
+
+            if ($contextId !== null && $entry->contextId() !== $contextId) {
+                return false;
+            }
+
+            if ($query->noContext() && $entry->contextId() !== null) {
+                return false;
+            }
+
+            return true;
+        }));
+    }
+
+    private function localRecordedDate(LogEntry $entry): string
+    {
+        return $entry->recordedAt()
+            ->setTimezone(new DateTimeZone(date_default_timezone_get()))
+            ->format('Y-m-d');
+    }
+
+    /**
+     * @param list<LogEntry> $entries
+     * @return list<LogEntry>
+     */
+    private function sortLogEntriesByRecordedTime(array $entries, string $order): array
+    {
+        usort($entries, static function (LogEntry $a, LogEntry $b) use ($order): int {
+            $comparison = $a->recordedAt() <=> $b->recordedAt();
+
+            if ($comparison === 0) {
+                $comparison = $a->id() <=> $b->id();
+            }
+
+            return $order === 'desc' ? -$comparison : $comparison;
+        });
+
+        return $entries;
+    }
+
+    /** @return array<int, string> */
+    private function contextNamesById(): array
+    {
+        return array_reduce(
+            $this->contexts->all(),
+            static function (array $namesById, Context $context): array {
+                $namesById[$context->id()] = $context->name();
+
+                return $namesById;
+            },
+            []
+        );
     }
 
     /**

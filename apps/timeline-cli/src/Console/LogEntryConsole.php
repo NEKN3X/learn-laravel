@@ -10,7 +10,10 @@ use DateTimeZone;
 use TimelineCli\Application\Exception\ContextNotFound;
 use TimelineCli\Application\Exception\LogEntryNotFound;
 use TimelineCli\Application\LogEntryChanges;
+use TimelineCli\Application\LogEntryQuery;
+use TimelineCli\Application\LogEntryReview;
 use TimelineCli\Application\LogEntryService;
+use TimelineCli\Domain\LogEntry;
 use TimelineCli\Domain\Exception\InvalidContext;
 use TimelineCli\Domain\Exception\InvalidLogEntry;
 use TimelineCli\Infrastructure\StorageFailure;
@@ -145,6 +148,69 @@ final class LogEntryConsole
 
     /**
      * @param list<string> $args
+     */
+    public function listEntries(array $args): void
+    {
+        $query = $this->parseLogEntryQueryOptions('log:list', $args, true, true);
+
+        try {
+            $review = $this->entries->review($query);
+        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
+            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
+        }
+
+        $this->printLogEntries($review);
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    public function today(array $args): void
+    {
+        $query = $this->parseLogEntryQueryOptions('log:today', $args, false, true);
+
+        try {
+            $review = $this->entries->today($query);
+        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
+            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
+        }
+
+        $this->printLogEntries($review);
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    public function exportCsv(array $args): void
+    {
+        $parsed = $this->parseArguments(
+            'log:export-csv',
+            $args,
+            ['--date', '--from', '--to', '--context', '--output'],
+            ['--no-context']
+        );
+        $this->requireNoPositionals('log:export-csv', $parsed['positionals']);
+
+        $query = $this->buildLogEntryQuery('log:export-csv', $parsed['options'], true, false);
+
+        try {
+            $review = $this->entries->export($query);
+        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
+            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
+        }
+
+        $csv = $this->renderLogEntriesCsv($review);
+
+        if (array_key_exists('--output', $parsed['options'])) {
+            $this->writeCsvFile((string) $parsed['options']['--output'], $csv);
+            return;
+        }
+
+        echo $csv;
+    }
+
+    /**
+     * @param list<string> $args
      * @param list<string> $valueOptions
      * @param list<string> $flagOptions
      * @return array{positionals: list<string>, options: array<string, string|bool>}
@@ -206,6 +272,16 @@ final class LogEntryConsole
 
         if (count($positionals) > 1) {
             throw new LogEntryCommandFailed("Command {$command} accepts exactly one {$name}.");
+        }
+    }
+
+    /**
+     * @param list<string> $positionals
+     */
+    private function requireNoPositionals(string $command, array $positionals): void
+    {
+        if (count($positionals) > 0) {
+            throw new LogEntryCommandFailed("Command {$command} does not accept positional arguments.");
         }
     }
 
@@ -283,6 +359,171 @@ final class LogEntryConsole
         }
 
         throw new LogEntryCommandFailed("Invalid date/time for {$option}: {$value}. Use Y-m-d H:i or ISO 8601.");
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    private function parseLogEntryQueryOptions(string $command, array $args, bool $allowDateFilters, bool $allowOrder): LogEntryQuery
+    {
+        $valueOptions = ['--context'];
+
+        if ($allowDateFilters) {
+            $valueOptions[] = '--date';
+            $valueOptions[] = '--from';
+            $valueOptions[] = '--to';
+        }
+
+        if ($allowOrder) {
+            $valueOptions[] = '--order';
+        }
+
+        $parsed = $this->parseArguments($command, $args, $valueOptions, ['--no-context']);
+        $this->requireNoPositionals($command, $parsed['positionals']);
+
+        return $this->buildLogEntryQuery($command, $parsed['options'], $allowDateFilters, $allowOrder);
+    }
+
+    /**
+     * @param array<string, string|bool> $options
+     */
+    private function buildLogEntryQuery(
+        string $command,
+        array $options,
+        bool $allowDateFilters,
+        bool $allowOrder
+    ): LogEntryQuery {
+        if (!$allowDateFilters) {
+            foreach (['--date', '--from', '--to'] as $option) {
+                if (array_key_exists($option, $options)) {
+                    throw new LogEntryCommandFailed("Unknown option for {$command}: {$option}");
+                }
+            }
+        }
+
+        $this->requireNotMutuallyExclusive($options, '--date', '--from');
+        $this->requireNotMutuallyExclusive($options, '--date', '--to');
+        $this->requireNotMutuallyExclusive($options, '--context', '--no-context');
+
+        $date = array_key_exists('--date', $options) ? $this->parseLocalDate((string) $options['--date'], '--date') : null;
+        $from = array_key_exists('--from', $options) ? $this->parseLocalDate((string) $options['--from'], '--from') : null;
+        $to = array_key_exists('--to', $options) ? $this->parseLocalDate((string) $options['--to'], '--to') : null;
+
+        if ($from !== null && $to !== null && $from > $to) {
+            throw new LogEntryCommandFailed('--from must be on or before --to.');
+        }
+
+        $contextName = array_key_exists('--context', $options)
+            ? $this->normalizeContextName((string) $options['--context'])
+            : null;
+        $noContext = array_key_exists('--no-context', $options);
+        $order = 'desc';
+
+        if ($allowOrder && array_key_exists('--order', $options)) {
+            $order = strtolower(trim((string) $options['--order']));
+
+            if ($order !== 'asc' && $order !== 'desc') {
+                throw new LogEntryCommandFailed("Invalid order: {$options['--order']}. Use asc or desc.");
+            }
+        }
+
+        return new LogEntryQuery($date, $from, $to, $contextName, $noContext, $order);
+    }
+
+    private function parseLocalDate(string $value, string $option): string
+    {
+        $value = trim($value);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        if (!$date instanceof DateTimeImmutable || !$this->dateParseSucceeded() || $date->format('Y-m-d') !== $value) {
+            throw new LogEntryCommandFailed("Invalid date for {$option}: {$value}. Use Y-m-d.");
+        }
+
+        return $value;
+    }
+
+    private function printLogEntries(LogEntryReview $review): void
+    {
+        if (count($review->entries()) === 0) {
+            echo "No Log Entries found.\n";
+            return;
+        }
+
+        foreach ($review->entries() as $entry) {
+            $line = "#{$entry->id()} {$entry->recordedAt()->format(DateTimeInterface::ATOM)}";
+
+            if ($entry->endedAt() !== null) {
+                $line .= " -> {$entry->endedAt()->format(DateTimeInterface::ATOM)}";
+            }
+
+            if ($entry->contextId() !== null) {
+                $contextName = $review->contextNameFor($entry->contextId()) ?? "Context #{$entry->contextId()}";
+                $line .= " [{$contextName}]";
+            }
+
+            $line .= " {$entry->title()}";
+            echo $line . "\n";
+        }
+    }
+
+    private function renderLogEntriesCsv(LogEntryReview $review): string
+    {
+        $stream = fopen('php://temp', 'r+');
+        if ($stream === false) {
+            throw new LogEntryCommandFailed('Could not open temporary stream for CSV output.');
+        }
+
+        fputcsv($stream, ['id', 'title', 'content', 'recorded_at', 'ended_at', 'context_id', 'context_name'], ',', '"', '');
+
+        foreach ($review->entries() as $entry) {
+            $this->writeLogEntryCsvRow($stream, $entry, $review);
+        }
+
+        rewind($stream);
+        $csv = stream_get_contents($stream);
+        fclose($stream);
+
+        if ($csv === false) {
+            throw new LogEntryCommandFailed('Could not read CSV output.');
+        }
+
+        return $csv;
+    }
+
+    /**
+     * @param resource $stream
+     */
+    private function writeLogEntryCsvRow($stream, LogEntry $entry, LogEntryReview $review): void
+    {
+        $contextId = $entry->contextId();
+
+        fputcsv($stream, [
+            $entry->id(),
+            $entry->title(),
+            $entry->content() ?? '',
+            $entry->recordedAt()->format(DateTimeInterface::ATOM),
+            $entry->endedAt()?->format(DateTimeInterface::ATOM) ?? '',
+            $contextId ?? '',
+            $contextId === null ? '' : ($review->contextNameFor($contextId) ?? "Context #{$contextId}"),
+        ], ',', '"', '');
+    }
+
+    private function writeCsvFile(string $path, string $csv): void
+    {
+        $path = trim($path);
+
+        if ($path === '') {
+            throw new LogEntryCommandFailed('Output path cannot be empty.');
+        }
+
+        $directory = dirname($path);
+        if ($directory !== '.' && !is_dir($directory)) {
+            throw new LogEntryCommandFailed("Output directory does not exist: {$directory}");
+        }
+
+        if (file_put_contents($path, $csv, LOCK_EX) === false) {
+            throw new LogEntryCommandFailed("Could not write CSV output file: {$path}");
+        }
     }
 
     private function dateParseSucceeded(): bool
