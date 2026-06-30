@@ -19,11 +19,11 @@ if ($command === null) {
 
 switch ($command) {
     case 'log:add':
-        add_log_entry(array_slice($argv, 2));
+        run_log_entry_command('add', array_slice($argv, 2));
         break;
 
     case 'log:end':
-        end_log_entry(array_slice($argv, 2));
+        run_log_entry_command('end', array_slice($argv, 2));
         break;
 
     case 'log:edit':
@@ -114,6 +114,15 @@ function run_context_command(string $method, array $args): void
     }
 }
 
+function run_log_entry_command(string $method, array $args): void
+{
+    try {
+        log_entry_console()->{$method}($args);
+    } catch (TimelineCli\Console\LogEntryCommandFailed $exception) {
+        fail($exception->getMessage());
+    }
+}
+
 function context_console(): TimelineCli\Console\ContextConsole
 {
     $contextRepository = new TimelineCli\Infrastructure\JsonContextRepository(contexts_path());
@@ -121,6 +130,20 @@ function context_console(): TimelineCli\Console\ContextConsole
     $contextService = new TimelineCli\Application\ContextService($contextRepository, $currentContextStore);
 
     return new TimelineCli\Console\ContextConsole($contextService);
+}
+
+function log_entry_console(): TimelineCli\Console\LogEntryConsole
+{
+    $logEntryRepository = new TimelineCli\Infrastructure\JsonLogEntryRepository(log_entries_path());
+    $contextRepository = new TimelineCli\Infrastructure\JsonContextRepository(contexts_path());
+    $currentContextStore = new TimelineCli\Infrastructure\JsonCurrentContextStore(current_context_path());
+    $logEntryService = new TimelineCli\Application\LogEntryService(
+        $logEntryRepository,
+        $contextRepository,
+        $currentContextStore
+    );
+
+    return new TimelineCli\Console\LogEntryConsole($logEntryService);
 }
 
 function end_log_entry(array $args): void
@@ -1095,18 +1118,26 @@ function require_context_oop_files(): void
 
     foreach ([
         '/Domain/Exception/InvalidContext.php',
+        '/Domain/Exception/InvalidLogEntry.php',
         '/Domain/Context.php',
+        '/Domain/LogEntry.php',
         '/Domain/ContextRepository.php',
+        '/Domain/LogEntryRepository.php',
         '/Domain/CurrentContextStore.php',
         '/Application/Exception/ContextNotFound.php',
         '/Application/Exception/DuplicateContextName.php',
+        '/Application/Exception/LogEntryNotFound.php',
         '/Application/ContextList.php',
         '/Application/ContextService.php',
+        '/Application/LogEntryService.php',
         '/Infrastructure/StorageFailure.php',
         '/Infrastructure/JsonContextRepository.php',
+        '/Infrastructure/JsonLogEntryRepository.php',
         '/Infrastructure/JsonCurrentContextStore.php',
         '/Console/ContextCommandFailed.php',
+        '/Console/LogEntryCommandFailed.php',
         '/Console/ContextConsole.php',
+        '/Console/LogEntryConsole.php',
     ] as $file) {
         require_once $src . $file;
     }
