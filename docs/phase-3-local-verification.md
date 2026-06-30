@@ -50,6 +50,13 @@ php bin/app.php log:list >/dev/null
 ! composer show symfony/console >/dev/null 2>&1
 ```
 
+Verified result on 2026-06-30:
+
+- Composer install and autoload generation succeeded with local Composer 2.10.1 and PHP 8.5.4.
+- Syntax checks passed for `bin/app.php` and every PHP file under `src/`.
+- `bin/app.php` remained a thin bootstrap under 40 lines.
+- The boundary grep found no physical deletion command, Archived Log Entry workflow, Log Categories, SQLite/PDO usage, or CLI framework dependency.
+
 ## Major Phase 2 Compatibility Flows
 
 Verification command:
@@ -96,6 +103,12 @@ grep -n "2026-06-28T09:00:00+09:00" exports/phase-3.csv | grep -F "2:"
 grep -n "2026-06-28T12:00:00+09:00" exports/phase-3.csv | grep -F "3:"
 ```
 
+Verified result on 2026-06-30:
+
+- Context creation, case-insensitive switching, and Context listing succeeded.
+- Log Entry creation, ending, editing, listing, filtering, today views, and CSV export succeeded through the Phase 2-compatible command contract.
+- CSV export wrote the expected header and ascending rows to `exports/phase-3.csv`.
+
 ## `.env` Configuration
 
 Verification command:
@@ -123,6 +136,11 @@ test -f custom-data/log_entries.json
 test -f custom-data/current_context.json
 ```
 
+Verified result on 2026-06-30:
+
+- `TIMELINE_DATA_DIR` redirected Context, Log Entry, and Current Context JSON files to `custom-data`.
+- `TIMELINE_LOG_FILE` was accepted as the configured operational log path.
+
 ## Logging Operational Failures
 
 Verification command:
@@ -148,6 +166,10 @@ grep -F "Storage file contains broken JSON" /tmp/phase-3-err
 test -s logs/app.log
 grep -F "broken JSON" logs/app.log
 ```
+
+Verified result on 2026-06-30:
+
+- Broken JSON produced a non-zero exit, a direct stderr error, and an operational failure entry in `logs/app.log`.
 
 ## Invalid Input Failures
 
@@ -190,3 +212,8 @@ must_fail php bin/app.php context:add LEARN-LARAVEL
 
 test ! -e logs/app.log
 ```
+
+Verified result on 2026-06-30:
+
+- Invalid commands, options, missing values, duplicate options, mutually exclusive options, invalid date/time input, invalid date ranges, invalid IDs, unknown records, unknown Contexts, and duplicate Context names exited non-zero with direct stderr messages.
+- Ordinary input failures did not create `logs/app.log`.
