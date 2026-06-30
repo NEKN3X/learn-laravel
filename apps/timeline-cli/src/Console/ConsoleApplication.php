@@ -7,6 +7,11 @@ namespace TimelineCli\Console;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
+use TimelineCli\Application\Exception\ContextNotFound;
+use TimelineCli\Application\Exception\DuplicateContextName;
+use TimelineCli\Application\Exception\LogEntryNotFound;
+use TimelineCli\Domain\Exception\InvalidContext;
+use TimelineCli\Domain\Exception\InvalidLogEntry;
 use TimelineCli\Infrastructure\StorageFailure;
 
 final class ConsoleApplication
@@ -43,8 +48,18 @@ final class ConsoleApplication
                 'context:clear' => $this->contexts->clear(array_slice($argv, 2)),
                 default => throw new ConsoleCommandFailed("Unknown command: {$command}\n\n" . $this->usage()),
             };
-        } catch (ConsoleCommandFailed $exception) {
-            $this->logOperationalFailure($exception);
+        } catch (StorageFailure $exception) {
+            $this->logFailure($exception->getMessage(), $exception);
+
+            return $this->fail($exception->getMessage());
+        } catch (
+            ConsoleCommandFailed
+            | InvalidContext
+            | InvalidLogEntry
+            | ContextNotFound
+            | DuplicateContextName
+            | LogEntryNotFound $exception
+        ) {
             return $this->fail($exception->getMessage());
         } catch (Throwable $exception) {
             $this->logFailure('Unexpected Timeline CLI failure.', $exception);
@@ -53,30 +68,6 @@ final class ConsoleApplication
         }
 
         return 0;
-    }
-
-    private function logOperationalFailure(Throwable $exception): void
-    {
-        $operationalFailure = $this->findOperationalFailure($exception);
-
-        if (!$operationalFailure instanceof StorageFailure) {
-            return;
-        }
-
-        $this->logFailure($operationalFailure->getMessage(), $operationalFailure);
-    }
-
-    private function findOperationalFailure(Throwable $exception): ?StorageFailure
-    {
-        do {
-            if ($exception instanceof StorageFailure) {
-                return $exception;
-            }
-
-            $exception = $exception->getPrevious();
-        } while ($exception instanceof Throwable);
-
-        return null;
     }
 
     private function logger(): LoggerInterface

@@ -7,16 +7,11 @@ namespace TimelineCli\Console;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
-use TimelineCli\Application\Exception\ContextNotFound;
-use TimelineCli\Application\Exception\LogEntryNotFound;
 use TimelineCli\Application\LogEntryChanges;
 use TimelineCli\Application\LogEntryQuery;
 use TimelineCli\Application\LogEntryReview;
 use TimelineCli\Application\LogEntryService;
 use TimelineCli\Domain\LogEntry;
-use TimelineCli\Domain\Exception\InvalidContext;
-use TimelineCli\Domain\Exception\InvalidLogEntry;
-use TimelineCli\Infrastructure\StorageFailure;
 
 final class LogEntryConsole
 {
@@ -50,11 +45,7 @@ final class LogEntryConsole
             ? $this->parseExplicitDateTime((string) $parsed['options']['--recorded-at'], '--recorded-at')
             : new DateTimeImmutable();
 
-        try {
-            $entry = $this->entries->add($title, $content, $recordedAt, $contextName, $useNoContext);
-        } catch (InvalidContext | InvalidLogEntry | ContextNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $entry = $this->entries->add($title, $content, $recordedAt, $contextName, $useNoContext);
 
         echo "Added Log Entry #{$entry->id()}: {$entry->title()}\n";
     }
@@ -72,11 +63,7 @@ final class LogEntryConsole
             ? $this->parseExplicitDateTime((string) $parsed['options']['--ended-at'], '--ended-at')
             : new DateTimeImmutable();
 
-        try {
-            $entry = $this->entries->end($id, $endedAt);
-        } catch (InvalidLogEntry | LogEntryNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $entry = $this->entries->end($id, $endedAt);
 
         echo "Ended Log Entry #{$id}: {$entry->endedAt()?->format(DateTimeInterface::ATOM)}\n";
     }
@@ -137,11 +124,7 @@ final class LogEntryConsole
             $changes->clearContext();
         }
 
-        try {
-            $this->entries->edit($id, $changes);
-        } catch (InvalidContext | InvalidLogEntry | ContextNotFound | LogEntryNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $this->entries->edit($id, $changes);
 
         echo "Updated Log Entry #{$id}.\n";
     }
@@ -153,11 +136,7 @@ final class LogEntryConsole
     {
         $query = $this->parseLogEntryQueryOptions('log:list', $args, true, true);
 
-        try {
-            $review = $this->entries->review($query);
-        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $review = $this->entries->review($query);
 
         $this->printLogEntries($review);
     }
@@ -169,11 +148,7 @@ final class LogEntryConsole
     {
         $query = $this->parseLogEntryQueryOptions('log:today', $args, false, true);
 
-        try {
-            $review = $this->entries->today($query);
-        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $review = $this->entries->today($query);
 
         $this->printLogEntries($review);
     }
@@ -193,11 +168,7 @@ final class LogEntryConsole
 
         $query = $this->buildLogEntryQuery('log:export-csv', $parsed['options'], true, false);
 
-        try {
-            $review = $this->entries->export($query);
-        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
-            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $review = $this->entries->export($query);
 
         $csv = $this->renderLogEntriesCsv($review);
 

@@ -160,7 +160,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 cp -R apps/timeline-cli "$tmpdir/timeline-cli"
 cd "$tmpdir/timeline-cli"
 composer install
-rm -rf data
+rm -rf data logs
 
 must_fail() {
     if "$@" >/tmp/phase-3-out 2>/tmp/phase-3-err; then
@@ -187,4 +187,6 @@ must_fail php bin/app.php log:end abc
 must_fail php bin/app.php log:end 999
 must_fail php bin/app.php log:list --context unknown
 must_fail php bin/app.php context:add LEARN-LARAVEL
+
+test ! -e logs/app.log
 ```

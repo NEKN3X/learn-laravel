@@ -5,10 +5,6 @@ declare(strict_types=1);
 namespace TimelineCli\Console;
 
 use TimelineCli\Application\ContextService;
-use TimelineCli\Application\Exception\ContextNotFound;
-use TimelineCli\Application\Exception\DuplicateContextName;
-use TimelineCli\Domain\Exception\InvalidContext;
-use TimelineCli\Infrastructure\StorageFailure;
 
 final class ContextConsole
 {
@@ -24,11 +20,7 @@ final class ContextConsole
         $parsed = $this->parseArguments('context:add', $args, [], []);
         $this->requireExactlyOnePositional('context:add', $parsed['positionals'], 'Context name');
 
-        try {
-            $context = $this->contexts->add($parsed['positionals'][0]);
-        } catch (InvalidContext | DuplicateContextName | StorageFailure $exception) {
-            throw new ContextCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $context = $this->contexts->add($parsed['positionals'][0]);
 
         echo "Added Context #{$context->id()}: {$context->name()}\n";
     }
@@ -40,11 +32,7 @@ final class ContextConsole
     {
         $this->requireNoArguments('context:list', $args);
 
-        try {
-            $contextList = $this->contexts->list();
-        } catch (StorageFailure $exception) {
-            throw new ContextCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $contextList = $this->contexts->list();
 
         if (count($contextList->contexts()) === 0) {
             echo "No Contexts found.\n";
@@ -70,11 +58,7 @@ final class ContextConsole
         $parsed = $this->parseArguments('context:switch', $args, [], []);
         $this->requireExactlyOnePositional('context:switch', $parsed['positionals'], 'Context name');
 
-        try {
-            $context = $this->contexts->switchTo($parsed['positionals'][0]);
-        } catch (InvalidContext | ContextNotFound | StorageFailure $exception) {
-            throw new ContextCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $context = $this->contexts->switchTo($parsed['positionals'][0]);
 
         echo "Switched Current Context to {$context->name()}.\n";
     }
@@ -86,11 +70,7 @@ final class ContextConsole
     {
         $this->requireNoArguments('context:clear', $args);
 
-        try {
-            $this->contexts->clear();
-        } catch (StorageFailure $exception) {
-            throw new ContextCommandFailed($exception->getMessage(), 0, $exception);
-        }
+        $this->contexts->clear();
 
         echo "Cleared Current Context.\n";
     }
