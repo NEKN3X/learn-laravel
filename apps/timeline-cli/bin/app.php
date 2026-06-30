@@ -27,7 +27,7 @@ switch ($command) {
         break;
 
     case 'log:edit':
-        edit_log_entry(array_slice($argv, 2));
+        run_log_entry_command('edit', array_slice($argv, 2));
         break;
 
     case 'log:list':
@@ -1128,6 +1128,7 @@ function require_context_oop_files(): void
         '/Application/Exception/DuplicateContextName.php',
         '/Application/Exception/LogEntryNotFound.php',
         '/Application/ContextList.php',
+        '/Application/LogEntryChanges.php',
         '/Application/ContextService.php',
         '/Application/LogEntryService.php',
         '/Infrastructure/StorageFailure.php',

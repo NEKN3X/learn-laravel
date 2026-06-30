@@ -75,11 +75,7 @@ final class LogEntry
 
     public function changeRecordedTime(DateTimeImmutable $recordedAt): void
     {
-        if ($this->endedAt !== null && $this->endedAt < $recordedAt) {
-            throw new InvalidLogEntry('ended_at cannot be earlier than recorded_at.');
-        }
-
-        $this->recordedAt = $recordedAt;
+        $this->changeTimes($recordedAt, $this->endedAt);
     }
 
     public function end(DateTimeImmutable $endedAt): void
@@ -91,9 +87,24 @@ final class LogEntry
         $this->setEndTime($endedAt);
     }
 
+    public function changeEndTime(DateTimeImmutable $endedAt): void
+    {
+        $this->changeTimes($this->recordedAt, $endedAt);
+    }
+
     public function clearEndTime(): void
     {
         $this->endedAt = null;
+    }
+
+    public function changeTimes(DateTimeImmutable $recordedAt, ?DateTimeImmutable $endedAt): void
+    {
+        if ($endedAt !== null && $endedAt < $recordedAt) {
+            throw new InvalidLogEntry('ended_at cannot be earlier than recorded_at.');
+        }
+
+        $this->recordedAt = $recordedAt;
+        $this->endedAt = $endedAt;
     }
 
     public function assignContext(?int $contextId): void

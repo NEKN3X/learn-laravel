@@ -9,6 +9,7 @@ use DateTimeInterface;
 use DateTimeZone;
 use TimelineCli\Application\Exception\ContextNotFound;
 use TimelineCli\Application\Exception\LogEntryNotFound;
+use TimelineCli\Application\LogEntryChanges;
 use TimelineCli\Application\LogEntryService;
 use TimelineCli\Domain\Exception\InvalidContext;
 use TimelineCli\Domain\Exception\InvalidLogEntry;
@@ -75,6 +76,71 @@ final class LogEntryConsole
         }
 
         echo "Ended Log Entry #{$id}: {$entry->endedAt()?->format(DateTimeInterface::ATOM)}\n";
+    }
+
+    /**
+     * @param list<string> $args
+     */
+    public function edit(array $args): void
+    {
+        $parsed = $this->parseArguments(
+            'log:edit',
+            $args,
+            ['--title', '--content', '--recorded-at', '--ended-at', '--context'],
+            ['--clear-content', '--clear-ended-at', '--no-context']
+        );
+        $this->requireExactlyOnePositional('log:edit', $parsed['positionals'], 'Log Entry ID');
+
+        if (count($parsed['options']) === 0) {
+            throw new LogEntryCommandFailed('Command log:edit requires at least one change option.');
+        }
+
+        $this->requireNotMutuallyExclusive($parsed['options'], '--content', '--clear-content');
+        $this->requireNotMutuallyExclusive($parsed['options'], '--ended-at', '--clear-ended-at');
+        $this->requireNotMutuallyExclusive($parsed['options'], '--context', '--no-context');
+
+        $id = $this->parseLogEntryId($parsed['positionals'][0]);
+        $changes = new LogEntryChanges();
+
+        if (array_key_exists('--title', $parsed['options'])) {
+            $changes->changeTitle($this->normalizeTitle((string) $parsed['options']['--title'], 'Title cannot be empty.'));
+        }
+
+        if (array_key_exists('--content', $parsed['options'])) {
+            $changes->changeContent($this->normalizeContentInput((string) $parsed['options']['--content']));
+        }
+
+        if (array_key_exists('--clear-content', $parsed['options'])) {
+            $changes->changeContent(null);
+        }
+
+        if (array_key_exists('--recorded-at', $parsed['options'])) {
+            $changes->changeRecordedTime($this->parseExplicitDateTime((string) $parsed['options']['--recorded-at'], '--recorded-at'));
+        }
+
+        if (array_key_exists('--ended-at', $parsed['options'])) {
+            $changes->changeEndTime($this->parseExplicitDateTime((string) $parsed['options']['--ended-at'], '--ended-at'));
+        }
+
+        if (array_key_exists('--clear-ended-at', $parsed['options'])) {
+            $changes->changeEndTime(null);
+        }
+
+        if (array_key_exists('--context', $parsed['options'])) {
+            $changes->assignContext($this->normalizeContextName((string) $parsed['options']['--context']));
+        }
+
+        if (array_key_exists('--no-context', $parsed['options'])) {
+            $changes->clearContext();
+        }
+
+        try {
+            $this->entries->edit($id, $changes);
+        } catch (InvalidContext | InvalidLogEntry | ContextNotFound | LogEntryNotFound | StorageFailure $exception) {
+            throw new LogEntryCommandFailed($exception->getMessage(), 0, $exception);
+        }
+
+        echo "Updated Log Entry #{$id}.\n";
     }
 
     /**
